@@ -4,16 +4,17 @@ import bcrypt
 import pandas as pd
 import streamlit as st
 from pymongo import MongoClient
+import streamlit as st
 
 
 # ---------- CONFIG ----------
 
 # Change this if you use MongoDB Atlas
-MONGO_URI = MongoClient("mongodb+srv://faysalelawar:pb6LB2kBPQ5Be5vN@dataengineeringcluster.61mrj.mongodb.net/?retryWrites=true&w=majority&appName=DataEngineeringCluster")
+
+MONGO_URI = st.secrets["mongo"]["uri"]
 DB_NAME = "event_stock_db"
 APP_TITLE = "Event Stock Control"
 APP_SUBTITLE = "Books & Stationery • Exhibitor Stock Dashboard"
-
 
 # ---------- DB HELPERS ----------
 
