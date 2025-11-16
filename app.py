@@ -4,9 +4,16 @@ import bcrypt
 import pandas as pd
 import streamlit as st
 from pymongo import MongoClient
+from pathlib import Path
 
 # ---------- PAGE CONFIG (must be first Streamlit command, once only) ----------
-st.set_page_config(page_title="Event Stock Control", page_icon="📦", layout="wide")
+st.set_page_config(
+    page_title="Al AIN Book Festival Event Book Stock Control",
+    page_icon="📦",
+    layout="wide",
+)
+
+LOGO_PATH = Path("assets/quill_logo.jpeg")
 
 # ---------- CONFIG ----------
 
@@ -18,9 +25,8 @@ mongo_secrets = st.secrets.get("mongo", {})
 MONGO_URI = mongo_secrets.get("uri", DEFAULT_LOCAL_URI)
 
 DB_NAME = "event_stock_db"
-APP_TITLE = "Event Stock Control"
-APP_SUBTITLE = "Books & Stationery • Exhibitor Stock Dashboard"
-
+APP_TITLE = "Al AIN Book Festival Event Book Stock Control Powered BY Quill AI"
+APP_SUBTITLE = "Powered BY Quill AI"
 
 # ---------- DB HELPERS ----------
 
@@ -131,6 +137,7 @@ def auth_guard():
 
     st.stop()
 
+
 # ---------- STOCK HELPERS ----------
 
 def get_items_with_current_stock() -> pd.DataFrame:
@@ -146,6 +153,7 @@ def get_items_with_current_stock() -> pd.DataFrame:
                 "id",
                 "exhibitor_name",
                 "item_type",
+                "location",
                 "open_stock",
                 "movement_delta",
                 "current_stock",
@@ -155,6 +163,12 @@ def get_items_with_current_stock() -> pd.DataFrame:
     df_items = pd.DataFrame(items)
     df_items["id"] = df_items["_id"].astype(str)
     df_items["open_stock"] = df_items["open_stock"].fillna(0).astype(int)
+
+    # Ensure location column exists for older documents
+    if "location" not in df_items.columns:
+        df_items["location"] = ""
+    else:
+        df_items["location"] = df_items["location"].fillna("").astype(str)
 
     movements = list(mov_col.find({}))
     if movements:
@@ -181,29 +195,48 @@ def get_items_with_current_stock() -> pd.DataFrame:
     df["current_stock"] = df["open_stock"] + df["movement_delta"]
 
     df = df[
-        ["id", "exhibitor_name", "item_type", "open_stock", "movement_delta", "current_stock"]
+        [
+            "id",
+            "exhibitor_name",
+            "item_type",
+            "location",
+            "open_stock",
+            "movement_delta",
+            "current_stock",
+        ]
     ].sort_values(by=["exhibitor_name", "item_type"])
 
     return df
 
 
-def insert_stock_item(exhibitor_name: str, item_type: str, open_stock: int):
+def insert_stock_item(
+    exhibitor_name: str,
+    item_type: str,
+    open_stock: int,
+    location: str,
+):
     doc = {
         "exhibitor_name": exhibitor_name,
         "item_type": item_type,
         "open_stock": int(open_stock),
+        "location": location,
     }
     items_col.insert_one(doc)
 
 
 def insert_movement(
-    stock_item_id: str, movement_type: str, quantity: int, movement_date: dt.date
+    stock_item_id: str,
+    movement_type: str,
+    quantity: int,
+    movement_date: dt.date,
+    notes: str,
 ):
     doc = {
         "stock_item_id": stock_item_id,
         "movement_date": movement_date.isoformat(),
         "movement_type": movement_type,
         "quantity": int(quantity),
+        "notes": notes,
     }
     mov_col.insert_one(doc)
 
@@ -213,9 +246,15 @@ def get_movements_for_item(stock_item_id: str) -> pd.DataFrame:
         mov_col.find({"stock_item_id": stock_item_id}).sort("movement_date", -1)
     )
     if not movements:
-        return pd.DataFrame(columns=["movement_date", "movement_type", "quantity"])
+        return pd.DataFrame(columns=["movement_date", "movement_type", "quantity", "notes"])
 
-    df = pd.DataFrame(movements)[["movement_date", "movement_type", "quantity"]]
+    df = pd.DataFrame(movements)
+    if "notes" not in df.columns:
+        df["notes"] = ""
+    else:
+        df["notes"] = df["notes"].fillna("").astype(str)
+
+    df = df[["movement_date", "movement_type", "quantity", "notes"]]
     df = df.sort_values(by=["movement_date"], ascending=False)
     return df
 
@@ -228,6 +267,10 @@ auth_guard()
 current_user = st.session_state["user"]
 is_admin = current_user.get("is_admin", False)
 
+# Keep track of selected page in session state
+if "page" not in st.session_state:
+    st.session_state["page"] = "Dashboard"
+page = st.session_state["page"]
 
 # Light styling
 st.markdown(
@@ -254,15 +297,44 @@ st.markdown(
         background-color: #e7f5ff;
         color: #1864ab;
     }
+    @media (max-width: 900px) {
+        .top-bar h2 {
+            font-size: 1.1rem;
+        }
+        .top-bar p {
+            font-size: 0.8rem;
+        }
+    }
+
+    /* Make primary buttons blue */
+    div.stButton > button[kind="primary"] {
+        background-color: #101bab;   /* blue */
+        color: white;
+        border: none;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #101bab;   /* darker blue on hover */
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# Top bar
+
+
+# Top bar with logo + title + top-right navigation
 with st.container():
-    col_l, col_r = st.columns([4, 2])
-    with col_l:
+    col_logo, col_title, col_right = st.columns([1, 4, 4])
+
+    # Left: Logo
+    with col_logo:
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), use_container_width=True)
+        else:
+            st.write("")
+
+    # Middle: Title
+    with col_title:
         st.markdown(
             f"""
             <div class="top-bar">
@@ -274,7 +346,9 @@ with st.container():
             """,
             unsafe_allow_html=True,
         )
-    with col_r:
+
+    # Right: user info + nav buttons + logout
+    with col_right:
         st.markdown(
             f"""
             <div class="top-bar" style="text-align: right;">
@@ -285,40 +359,52 @@ with st.container():
             unsafe_allow_html=True,
         )
 
-# Sidebar: navigation, logout, admin tools
-with st.sidebar:
-    st.markdown("### Navigation")
-    page = st.radio(
-        "",
-        ["Dashboard", "Add / Edit Items", "Add Movement"],
-    )
+        nav_col1, nav_col2, nav_col3, spacer, logout_col = st.columns(
+            [1.2, 1.4, 1.6, 0.5, 1]
+        )
 
-    st.markdown("---")
-    if st.button("Logout"):
-        st.session_state["user"] = None
-        st.rerun()
+        with nav_col1:
+            if st.button(
+                "Dashboard",
+                type="primary" if page == "Dashboard" else "secondary",
+                use_container_width=True,
+                key="btn_dashboard",
+            ):
+                st.session_state["page"] = "Dashboard"
+                st.rerun()
 
-    if is_admin:
-        st.markdown("### Admin: Add User")
-        with st.form("add_user_form"):
-            new_username = st.text_input("New username")
-            new_pw1 = st.text_input("Password", type="password")
-            new_pw2 = st.text_input("Confirm password", type="password")
-            is_admin_new = st.checkbox("Make this user admin?", value=False)
-            add_user_sub = st.form_submit_button("Create user")
+        with nav_col2:
+            if st.button(
+                "Add Items",
+                type="primary" if page == "Add / Edit Items" else "secondary",
+                use_container_width=True,
+                key="btn_items",
+            ):
+                st.session_state["page"] = "Add / Edit Items"
+                st.rerun()
 
-        if add_user_sub:
-            if not new_username.strip():
-                st.error("Username is required.")
-            elif new_pw1 != new_pw2:
-                st.error("Passwords do not match.")
-            else:
-                try:
-                    create_user(new_username.strip(), new_pw1, is_admin=is_admin_new)
-                    st.success("User created successfully!")
-                except ValueError as e:
-                    st.error(str(e))
+        with nav_col3:
+            if st.button(
+                "Add Movement",
+                type="primary" if page == "Add Movement" else "secondary",
+                use_container_width=True,
+                key="btn_movement",
+            ):
+                st.session_state["page"] = "Add Movement"
+                st.rerun()
 
+        with logout_col:
+            if st.button(
+                "Logout",
+                type="secondary",
+                use_container_width=True,
+                key="btn_logout",
+            ):
+                st.session_state["user"] = None
+                st.rerun()
+
+# ---------- PAGE ROUTING ----------
+page = st.session_state.get("page", "Dashboard")
 
 # ---------- PAGE: DASHBOARD ----------
 
@@ -354,6 +440,7 @@ if page == "Dashboard":
             columns={
                 "exhibitor_name": "Exhibitor",
                 "item_type": "Item Type",
+                "location": "Location",
                 "open_stock": "Open Stock",
                 "movement_delta": "Net Movements",
                 "current_stock": "Current Stock",
@@ -367,6 +454,28 @@ if page == "Dashboard":
             hide_index=True,
         )
 
+    # Admin-only: Add User section on dashboard
+    if is_admin:
+        st.markdown("---")
+        st.markdown("### 🛡️ Admin – Add User")
+        with st.form("add_user_form_dashboard"):
+            new_username = st.text_input("New username")
+            new_pw1 = st.text_input("Password", type="password")
+            new_pw2 = st.text_input("Confirm password", type="password")
+            is_admin_new = st.checkbox("Make this user admin?", value=False)
+            add_user_sub = st.form_submit_button("Create user")
+
+        if add_user_sub:
+            if not new_username.strip():
+                st.error("Username is required.")
+            elif new_pw1 != new_pw2:
+                st.error("Passwords do not match.")
+            else:
+                try:
+                    create_user(new_username.strip(), new_pw1, is_admin=is_admin_new)
+                    st.success("User created successfully!")
+                except ValueError as e:
+                    st.error(str(e))
 
 # ---------- PAGE: ADD / EDIT ITEMS ----------
 
@@ -374,7 +483,7 @@ elif page == "Add / Edit Items":
     st.subheader("➕ Add Exhibitor Opening Stock")
 
     with st.form("add_item_form"):
-        c1, c2, c3 = st.columns([3, 2, 2])
+        c1, c2, c3, c4 = st.columns([3, 2, 2, 3])
         with c1:
             exhibitor_name = st.text_input("Exhibitor name")
         with c2:
@@ -386,6 +495,8 @@ elif page == "Add / Edit Items":
                 step=1,
                 value=0,
             )
+        with c4:
+            location = st.text_input("Location (e.g. Box 1)")
 
         submitted = st.form_submit_button("Save item")
 
@@ -393,7 +504,12 @@ elif page == "Add / Edit Items":
         if not exhibitor_name.strip():
             st.error("Exhibitor name is required.")
         else:
-            insert_stock_item(exhibitor_name.strip(), item_type, int(open_stock))
+            insert_stock_item(
+                exhibitor_name=exhibitor_name.strip(),
+                item_type=item_type,
+                open_stock=int(open_stock),
+                location=location.strip(),
+            )
             st.success("Item added successfully!")
 
     st.markdown("---")
@@ -407,6 +523,7 @@ elif page == "Add / Edit Items":
             columns={
                 "exhibitor_name": "Exhibitor",
                 "item_type": "Item Type",
+                "location": "Location",
                 "open_stock": "Open Stock",
                 "movement_delta": "Net Movements",
                 "current_stock": "Current Stock",
@@ -417,7 +534,6 @@ elif page == "Add / Edit Items":
             use_container_width=True,
             hide_index=True,
         )
-
 
 # ---------- PAGE: ADD MOVEMENT ----------
 
@@ -438,19 +554,27 @@ elif page == "Add Movement":
             with c1:
                 selected_exhibitor = st.selectbox("Exhibitor", exhibitors)
 
-            # 🔹 NEW: always show Book + Stationery, not filtered
-            available_types = ["Book", "Stationery"]
-            with c2:
-                selected_item_type = st.selectbox("Item type", available_types)
+            types_for_exhibitor = (
+                items_df[items_df["exhibitor_name"] == selected_exhibitor]["item_type"]
+                .unique()
+                .tolist()
+            )
+            if not types_for_exhibitor:
+                types_for_exhibitor = ["Book", "Stationery"]
 
-            # Row 2: Movement type + quantity + date
-            c3, c4, c5 = st.columns([2, 2, 2])
+            with c2:
+                selected_item_type = st.selectbox("Item type", types_for_exhibitor)
+
+            # Row 2: Movement type + quantity + date + notes
+            c3, c4, c5, c6 = st.columns([2, 2, 2, 3])
             with c3:
                 movement_type = st.radio("Movement type", ["IN", "OUT"], horizontal=True)
             with c4:
                 quantity = st.number_input("Quantity", min_value=1, step=1, value=1)
             with c5:
                 movement_date = st.date_input("Movement date", value=dt.date.today())
+            with c6:
+                notes = st.text_input("Notes")
 
             submitted_mv = st.form_submit_button("Save movement")
 
@@ -476,10 +600,11 @@ elif page == "Add Movement":
                     movement_type=movement_type,
                     quantity=int(quantity),
                     movement_date=movement_date,
+                    notes=notes.strip(),
                 )
                 st.success("Movement saved!")
 
-        # Show current stock + history for the selected item (if exists)
+        # Show current stock + history for the selected item
         if stock_item_id:
             st.markdown("---")
             df_all = get_items_with_current_stock()
@@ -490,7 +615,9 @@ elif page == "Add Movement":
             c2.metric("Item Type", row["item_type"])
             c3.metric("Current Stock", int(row["current_stock"]))
 
-            st.markdown("#### Recent Movements for this Item")
+            st.markdown(f"**Location:** {row.get('location', '')}")
+
+            st.markdown("#### Movement Notes & History")
             hist_df = get_movements_for_item(stock_item_id)
             if hist_df.empty:
                 st.write("No movements yet.")
