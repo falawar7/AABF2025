@@ -329,10 +329,12 @@ with st.container():
     # Left: Logo
     with col_logo:
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), use_container_width=True)
+            st.image(str(LOGO_PATH))
         else:
             st.write("")
-
+        except Exception:
+            st.write("")
+        
     # Middle: Title
     with col_title:
         st.markdown(
