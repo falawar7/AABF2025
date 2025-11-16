@@ -4,17 +4,23 @@ import bcrypt
 import pandas as pd
 import streamlit as st
 from pymongo import MongoClient
-import streamlit as st
 
+# ---------- PAGE CONFIG (must be first Streamlit command, once only) ----------
+st.set_page_config(page_title="Event Stock Control", page_icon="📦", layout="wide")
 
 # ---------- CONFIG ----------
 
-# Change this if you use MongoDB Atlas
+# Local fallback URI if no secrets (useful when running on your PC)
+DEFAULT_LOCAL_URI = "mongodb://localhost:27017"
 
-MONGO_URI = st.secrets["mongo"]["uri"]
+# Try to read Mongo URI from secrets (for Streamlit Cloud / local secrets.toml)
+mongo_secrets = st.secrets.get("mongo", {})
+MONGO_URI = mongo_secrets.get("uri", DEFAULT_LOCAL_URI)
+
 DB_NAME = "event_stock_db"
 APP_TITLE = "Event Stock Control"
 APP_SUBTITLE = "Books & Stationery • Exhibitor Stock Dashboard"
+
 
 # ---------- DB HELPERS ----------
 
@@ -29,7 +35,6 @@ db = get_db()
 items_col = db["stock_items"]
 mov_col = db["stock_movements"]
 users_col = db["users"]
-
 
 # ---------- USER / AUTH ----------
 
@@ -81,7 +86,6 @@ def auth_guard():
 
     # No users yet -> force admin creation
     if users_col.count_documents({}) == 0:
-        st.set_page_config(page_title=f"{APP_TITLE} – Setup", page_icon="🔐", layout="wide")
         st.markdown("### 🔐 First-time setup: Create Admin Account")
 
         with st.form("create_admin_form"):
@@ -106,7 +110,6 @@ def auth_guard():
         st.stop()
 
     # Users exist -> show login form
-    st.set_page_config(page_title=f"{APP_TITLE} – Login", page_icon="🔑", layout="wide")
     st.markdown("### 🔑 Login to Event Stock Control")
 
     with st.form("login_form"):
@@ -127,7 +130,6 @@ def auth_guard():
             st.error("Invalid username or password.")
 
     st.stop()
-
 
 # ---------- STOCK HELPERS ----------
 
@@ -226,7 +228,6 @@ auth_guard()
 current_user = st.session_state["user"]
 is_admin = current_user.get("is_admin", False)
 
-st.set_page_config(page_title=APP_TITLE, page_icon="📦", layout="wide")
 
 # Light styling
 st.markdown(
