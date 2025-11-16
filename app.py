@@ -9,7 +9,7 @@ from pymongo import MongoClient
 # ---------- CONFIG ----------
 
 # Change this if you use MongoDB Atlas
-MONGO_URI = "mongodb://localhost:27017"
+MONGO_URI = MongoClient("mongodb+srv://faysalelawar:pb6LB2kBPQ5Be5vN@dataengineeringcluster.61mrj.mongodb.net/?retryWrites=true&w=majority&appName=DataEngineeringCluster")
 DB_NAME = "event_stock_db"
 APP_TITLE = "Event Stock Control"
 APP_SUBTITLE = "Books & Stationery • Exhibitor Stock Dashboard"
