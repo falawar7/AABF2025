@@ -332,8 +332,6 @@ with st.container():
             st.image(str(LOGO_PATH))
         else:
             st.write("")
-        except Exception:
-            st.write("")
         
     # Middle: Title
     with col_title:
