@@ -170,13 +170,26 @@ def get_items_with_current_stock() -> pd.DataFrame:
     else:
         df_items["location"] = df_items["location"].fillna("").astype(str)
 
+    # ----- Movements aggregation -----
     movements = list(mov_col.find({}))
     if movements:
         df_mov = pd.DataFrame(movements)
         df_mov["stock_item_id"] = df_mov["stock_item_id"].astype(str)
         df_mov["quantity"] = df_mov["quantity"].fillna(0).astype(int)
 
-        df_mov["sign"] = df_mov["movement_type"].map({"IN": 1, "OUT": -1}).fillna(0)
+        # Normalize movement_type to be safe (strip spaces, case-insensitive)
+        df_mov["movement_type_norm"] = (
+            df_mov["movement_type"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+        # Map IN → +1, OUT → -1, everything else → 0
+        df_mov["sign"] = df_mov["movement_type_norm"].map(
+            {"IN": 1, "OUT": -1}
+        ).fillna(0)
+
         df_mov["delta"] = df_mov["quantity"] * df_mov["sign"]
 
         df_agg = (
@@ -259,6 +272,20 @@ def get_movements_for_item(stock_item_id: str) -> pd.DataFrame:
     return df
 
 
+def get_exhibitor_options() -> list[str]:
+    """Return a sorted list of distinct exhibitor names from stock_items."""
+    try:
+        exhibitors = items_col.distinct("exhibitor_name")
+        exhibitors = [
+            str(e).strip()
+            for e in exhibitors
+            if isinstance(e, str) and str(e).strip()
+        ]
+        return sorted(set(exhibitors))
+    except Exception:
+        return []
+
+
 # ---------- MAIN APP UI ----------
 
 # Enforce login first
@@ -308,19 +335,17 @@ st.markdown(
 
     /* Make primary buttons blue */
     div.stButton > button[kind="primary"] {
-        background-color: #101bab;   /* blue */
+        background-color: #101bab;
         color: white;
         border: none;
     }
     div.stButton > button[kind="primary"]:hover {
-        background-color: #101bab;   /* darker blue on hover */
+        background-color: #101bab;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
-
-
 
 # Top bar with logo + title + top-right navigation
 with st.container():
@@ -328,11 +353,14 @@ with st.container():
 
     # Left: Logo
     with col_logo:
-        if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH))
-        else:
+        try:
+            if LOGO_PATH.exists():
+                st.image(str(LOGO_PATH), width=140)
+            else:
+                st.write("")
+        except Exception:
             st.write("")
-        
+
     # Middle: Title
     with col_title:
         st.markdown(
@@ -367,7 +395,6 @@ with st.container():
             if st.button(
                 "Dashboard",
                 type="primary" if page == "Dashboard" else "secondary",
-                use_container_width=True,
                 key="btn_dashboard",
             ):
                 st.session_state["page"] = "Dashboard"
@@ -377,7 +404,6 @@ with st.container():
             if st.button(
                 "Add Items",
                 type="primary" if page == "Add / Edit Items" else "secondary",
-                use_container_width=True,
                 key="btn_items",
             ):
                 st.session_state["page"] = "Add / Edit Items"
@@ -387,7 +413,6 @@ with st.container():
             if st.button(
                 "Add Movement",
                 type="primary" if page == "Add Movement" else "secondary",
-                use_container_width=True,
                 key="btn_movement",
             ):
                 st.session_state["page"] = "Add Movement"
@@ -397,7 +422,6 @@ with st.container():
             if st.button(
                 "Logout",
                 type="secondary",
-                use_container_width=True,
                 key="btn_logout",
             ):
                 st.session_state["user"] = None
@@ -482,35 +506,45 @@ if page == "Dashboard":
 elif page == "Add / Edit Items":
     st.subheader("➕ Add Exhibitor Opening Stock")
 
+    existing_exhibitors = get_exhibitor_options()
+    exhibitor_options = ["+ Add new exhibitor"]
+    if existing_exhibitors:
+        exhibitor_options += existing_exhibitors
+
+    exhibitor_name_effective = ""
+
     with st.form("add_item_form"):
         c1, c2, c3, c4 = st.columns([3, 2, 2, 3])
+
         with c1:
-            exhibitor_name = st.text_input("Exhibitor name")
+            exhibitor_choice = st.selectbox("Exhibitor", exhibitor_options)
+
+            if exhibitor_choice == "+ Add new exhibitor":
+                new_name = st.text_input("New exhibitor name")
+                exhibitor_name_effective = new_name.strip()
+            else:
+                exhibitor_name_effective = exhibitor_choice
+
         with c2:
-            item_type = st.selectbox("Item type", ["Book", "Stationery"])
+            item_type = st.selectbox("Item type", ["Book", "Stationery", "Quill", "Banner ","Others"])
         with c3:
-            open_stock = st.number_input(
-                "Open stock",
-                min_value=0,
-                step=1,
-                value=0,
-            )
+            open_stock = st.number_input("Open stock", min_value=0, step=1, value=0)
         with c4:
             location = st.text_input("Location (e.g. Box 1)")
 
         submitted = st.form_submit_button("Save item")
 
     if submitted:
-        if not exhibitor_name.strip():
+        if not exhibitor_name_effective:
             st.error("Exhibitor name is required.")
         else:
             insert_stock_item(
-                exhibitor_name=exhibitor_name.strip(),
+                exhibitor_name=exhibitor_name_effective,
                 item_type=item_type,
                 open_stock=int(open_stock),
                 location=location.strip(),
             )
-            st.success("Item added successfully!")
+            st.success(f"Item for '{exhibitor_name_effective}' added successfully!")
 
     st.markdown("---")
     st.markdown("#### Current Items")
@@ -560,29 +594,42 @@ elif page == "Add Movement":
                 .tolist()
             )
             if not types_for_exhibitor:
-                types_for_exhibitor = ["Book", "Stationery"]
+                types_for_exhibitor = ["Book", "Stationery", "Quill", "Banner ","Others"]
 
             with c2:
                 selected_item_type = st.selectbox("Item type", types_for_exhibitor)
 
-            # Row 2: Movement type + quantity + date + notes
-            c3, c4, c5, c6 = st.columns([2, 2, 2, 3])
+            # Current item row & location
+            selected_row = items_df[
+                (items_df["exhibitor_name"] == selected_exhibitor)
+                & (items_df["item_type"] == selected_item_type)
+            ]
+            current_location = ""
+            if not selected_row.empty:
+                current_location = selected_row.iloc[0]["location"]
+
+            # Row 2: Movement type + quantity + date
+            c3, c4, c5 = st.columns([2, 2, 2])
             with c3:
                 movement_type = st.radio("Movement type", ["IN", "OUT"], horizontal=True)
             with c4:
                 quantity = st.number_input("Quantity", min_value=1, step=1, value=1)
             with c5:
                 movement_date = st.date_input("Movement date", value=dt.date.today())
+
+            # Row 3: Location (editable in movement) + Notes
+            c6, c7 = st.columns([2, 4])
             with c6:
+                location_box = st.text_input(
+                    "Location (Box)",
+                    value=current_location or "",
+                    help="Where this stock is stored now (e.g. Box 1, Shelf A)",
+                )
+            with c7:
                 notes = st.text_input("Notes")
 
             submitted_mv = st.form_submit_button("Save movement")
 
-        # Find the item (Exhibitor + ItemType) in DB
-        selected_row = items_df[
-            (items_df["exhibitor_name"] == selected_exhibitor)
-            & (items_df["item_type"] == selected_item_type)
-        ]
         stock_item_id = None
         if not selected_row.empty:
             stock_item_id = selected_row.iloc[0]["id"]
@@ -595,6 +642,7 @@ elif page == "Add Movement":
                     "Go to **Add / Edit Items** and create it first."
                 )
             else:
+                # 1) Save the movement with notes
                 insert_movement(
                     stock_item_id=stock_item_id,
                     movement_type=movement_type,
@@ -602,7 +650,17 @@ elif page == "Add Movement":
                     movement_date=movement_date,
                     notes=notes.strip(),
                 )
-                st.success("Movement saved!")
+
+                # 2) Update the item's current location in stock_items
+                items_col.update_one(
+                    {
+                        "exhibitor_name": selected_exhibitor,
+                        "item_type": selected_item_type,
+                    },
+                    {"$set": {"location": location_box.strip()}},
+                )
+
+                st.success("Movement saved and location updated!")
 
         # Show current stock + history for the selected item
         if stock_item_id:
@@ -615,7 +673,7 @@ elif page == "Add Movement":
             c2.metric("Item Type", row["item_type"])
             c3.metric("Current Stock", int(row["current_stock"]))
 
-            st.markdown(f"**Location:** {row.get('location', '')}")
+            st.markdown(f"**Location (Box):** {row.get('location', '') or 'Not set'}")
 
             st.markdown("#### Movement Notes & History")
             hist_df = get_movements_for_item(stock_item_id)
