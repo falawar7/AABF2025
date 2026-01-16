@@ -8,7 +8,7 @@ from pathlib import Path
 
 # ---------- PAGE CONFIG (must be first Streamlit command, once only) ----------
 st.set_page_config(
-    page_title="Al AIN Book Festival Event Book Stock Control",
+    page_title="Al Dafra Book Festival Event Book Stock Control",
     page_icon="📦",
     layout="wide",
 )
@@ -25,7 +25,7 @@ mongo_secrets = st.secrets.get("mongo", {})
 MONGO_URI = mongo_secrets.get("uri", DEFAULT_LOCAL_URI)
 
 DB_NAME = "event_stock_db"
-APP_TITLE = "Al AIN Book Festival Event Book Stock Control Powered BY Quill AI"
+APP_TITLE = "Al Dafra Book Festival Event Book Stock Control Powered BY Quill AI"
 APP_SUBTITLE = "Powered BY Quill AI"
 
 # ---------- DB HELPERS ----------
